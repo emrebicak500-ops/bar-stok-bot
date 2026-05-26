@@ -2,14 +2,14 @@ import telebot
 import json
 from datetime import datetime
 
-TOKEN = "8641761191:AAG20Xs8C7yLGb0Kb8La2TCVASFi0PoPK9U"  # Kendi token'in
+TOKEN = "8641761191:AAG20Xs8C7yLGb0Kb8La2TCVASFi0PoPK9U"
 
 bot = telebot.TeleBot(TOKEN)
 
 DOSYA = "stok.json"
 KULLANICILAR_DOSYA = "yetkililer.json"
 
-SIFRE = "TheKeep54"   # 
+SIFRE = "TheKeep54"  
 default_stok = {
     "Jack Daniels 1L": {"adet": 12, "kritik": 3},
     "Chivas Regal 12": {"adet": 8, "kritik": 2},
