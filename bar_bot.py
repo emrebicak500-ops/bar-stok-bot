@@ -1,15 +1,16 @@
 import telebot
 import json
+import os
 from datetime import datetime
 
-TOKEN = "8641761191:AAG20Xs8C7yLGb0Kb8La2TCVASFi0PoPK9U"
-
+# Render'dan gelen TOKEN değerini kullanır
+TOKEN = os.getenv("TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
-DOSYA = "stok.json"
-KULLANICILAR_DOSYA = "yetkililer.json"
+# Render'da "Disk" bağladıysan buraya o yolu yazmalısın
+# Disk bağlamadıysan aynı klasöre kaydeder (fakat restartta silinebilir)
+DOSYA = "stok.json" 
 
-SIFRE = "TheKeep54"  
 default_stok = {
     "Jack Daniels 1L": {"adet": 12, "kritik": 3},
     "Chivas Regal 12": {"adet": 8, "kritik": 2},
@@ -18,31 +19,29 @@ default_stok = {
     "Absolut Vodka": {"adet": 15, "kritik": 4},
 }
 
-yetkililer = {}  # Kullanıcı ID'leri burada tutulacak
+# Şifre (İstersen bunu da os.getenv ile gizleyebilirsin)
+SIFRE = "TheKeep54"  
+yetkililer = {} 
 
 def yukle_stok():
-    try:
-        with open(DOSYA, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except:
+    if not os.path.exists(DOSYA):
         with open(DOSYA, "w", encoding="utf-8") as f:
             json.dump(default_stok, f, ensure_ascii=False, indent=2)
         return default_stok
+    with open(DOSYA, "r", encoding="utf-8") as f:
+        return json.load(f)
 
 def kaydet_stok(stok):
     with open(DOSYA, "w", encoding="utf-8") as f:
         json.dump(stok, f, ensure_ascii=False, indent=2)
 
-def yetkili_mi(user_id):
-    return str(user_id) in yetkililer
-
 @bot.message_handler(commands=['start'])
 def basla(message):
     user_id = message.from_user.id
-    if yetkili_mi(user_id):
+    if str(user_id) in yetkililer:
         bot.reply_to(message, "✅ Hoş geldin! Bot aktif.\n\n/stok\n/rapor")
     else:
-        bot.reply_to(message, "🔒 Bu bot sadece yetkili kişiler tarafından kullanılabilir.\n\nŞifreyi giriniz:")
+        bot.reply_to(message, "🔒 Bu bot sadece yetkili kişiler tarafından kullanılabilir.\n\nLütfen şifreyi giriniz:")
 
 @bot.message_handler(func=lambda m: True)
 def mesaj_isle(message):
@@ -50,62 +49,51 @@ def mesaj_isle(message):
     text = message.text.strip()
 
     # Şifre kontrolü
-    if not yetkili_mi(user_id):
+    if str(user_id) not in yetkililer:
         if text == SIFRE:
             yetkililer[str(user_id)] = True
-            bot.reply_to(message, "✅ Şifre doğru! Artık botu kullanabilirsiniz.\n\nKomutlar:\n/stok → Güncel stok\n/rapor → Detaylı rapor\nÜrün -3 → Eksilt\nÜrün +5 → Ekle")
+            bot.reply_to(message, "✅ Şifre doğru! Komutlar:\n/stok - Güncel durum\n/rapor - Liste\nÖrn: Jack Daniels +5")
         else:
             bot.reply_to(message, "❌ Yanlış şifre!")
         return
 
-    # Yetkili ise normal komutlar
+    # Yetkili ise işlemler
     try:
         if text.startswith('/stok'):
-            # ... (önceki stok kodunu buraya koy)
             stok = yukle_stok()
-            metin = "📊 *GÜNCEL STOK*\n\n"
+            metin = "📊 GÜNCEL STOK\n\n"
             for urun, veri in stok.items():
-                if veri["adet"] <= veri["kritik"]:
-                    metin += f"⚠️ {urun}: *{veri['adet']}*\n"
-                else:
-                    metin += f"✅ {urun}: {veri['adet']}\n"
+                durum = "⚠️" if veri["adet"] <= veri["kritik"] else "✅"
+                metin += f"{durum} {urun}: {veri['adet']}\n"
             bot.reply_to(message, metin, parse_mode="Markdown")
 
         elif text.startswith('/rapor'):
-            # rapor kodu...
             stok = yukle_stok()
-            metin = f"📋 *DETAYLI RAPOR* - {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+            metin = f"📋 RAPOR ({datetime.now().strftime('%H:%M')})\n\n"
             for urun, veri in stok.items():
-                metin += f"{urun}: {veri['adet']} adet (Kritik: {veri['kritik']})\n"
-            bot.reply_to(message, metin)
+                metin += f"{urun}: {veri['adet']} (Kritik: {veri['kritik']})\n"
+            bot.reply_to(message, metin, parse_mode="Markdown")
 
         elif "+" in text or "-" in text:
-            # Eksilt/Ekle kodu (önceki kodun aynı)
-            if "+" in text:
-                urun, adet_str = [x.strip() for x in text.split("+", 1)]
-                adet = int(adet_str)
-                islem = "eklendi"
-            else:
-                urun, adet_str = [x.strip() for x in text.split("-", 1)]
-                adet = int(adet_str)
-                islem = "eksiltildi"
+            islem = "+" if "+" in text else "-"
+            parts = text.split(islem)
+            urun = parts[0].strip()
+            adet = int(parts[1].strip())
 
             stok = yukle_stok()
             if urun in stok:
-                if islem == "eklendi":
+                if islem == "+":
                     stok[urun]["adet"] += adet
                 else:
-                    stok[urun]["adet"] -= adet
-                    if stok[urun]["adet"] < 0:
-                        stok[urun]["adet"] = 0
+                    stok[urun]["adet"] = max(0, stok[urun]["adet"] - adet)
+                
                 kaydet_stok(stok)
-                bot.reply_to(message, f"✅ {adet} adet {urun} {islem}.")
-                if stok[urun]["adet"] <= stok[urun]["kritik"]:
-                    bot.reply_to(message, f"⚠️ KRİTİK! {urun} sadece {stok[urun]['adet']} kaldı.")
+                bot.reply_to(message, f"✅ İşlem başarılı: {urun} -> {stok[urun]['adet']}")
             else:
-                bot.reply_to(message, "❌ Bu ürün stokta yok.")
+                bot.reply_to(message, "❌ Ürün bulunamadı.")
     except:
-        bot.reply_to(message, "❌ Komut formatı hatalı.")
+        bot.reply_to(message, "❌ Hatalı komut formatı. Örn: 'Jack Daniels +5'")
 
-print("Bot çalışıyor (Şifre korumalı)...")
-bot.infinity_polling()
+if _name_ == "_main_":
+    print("Bot başlatılıyor...")
+    bot.infinity_polling(drop_pending_updates=True)
