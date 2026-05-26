@@ -3,12 +3,10 @@ import json
 import os
 from datetime import datetime
 
-# Render'dan gelen TOKEN değerini kullanır
+# Render'da "Environment" kısmına TOKEN adında değişken eklemeyi unutma
 TOKEN = os.getenv("TOKEN")
 bot = telebot.TeleBot(TOKEN)
 
-# Render'da "Disk" bağladıysan buraya o yolu yazmalısın
-# Disk bağlamadıysan aynı klasöre kaydeder (fakat restartta silinebilir)
 DOSYA = "stok.json" 
 
 default_stok = {
@@ -19,7 +17,6 @@ default_stok = {
     "Absolut Vodka": {"adet": 15, "kritik": 4},
 }
 
-# Şifre (İstersen bunu da os.getenv ile gizleyebilirsin)
 SIFRE = "TheKeep54"  
 yetkililer = {} 
 
@@ -48,7 +45,6 @@ def mesaj_isle(message):
     user_id = message.from_user.id
     text = message.text.strip()
 
-    # Şifre kontrolü
     if str(user_id) not in yetkililer:
         if text == SIFRE:
             yetkililer[str(user_id)] = True
@@ -57,7 +53,6 @@ def mesaj_isle(message):
             bot.reply_to(message, "❌ Yanlış şifre!")
         return
 
-    # Yetkili ise işlemler
     try:
         if text.startswith('/stok'):
             stok = yukle_stok()
@@ -95,5 +90,4 @@ def mesaj_isle(message):
         bot.reply_to(message, "❌ Hatalı komut formatı. Örn: 'Jack Daniels +5'")
 
 if _name_ == "_main_":
-    print("Bot başlatılıyor...")
     bot.infinity_polling(drop_pending_updates=True)
