@@ -1,213 +1,106 @@
-import sqlite3
-from telegram import Update
-from telegram.ext import (
-    ApplicationBuilder,
-    CommandHandler,
-    ContextTypes,
-)
+import telebot
+import json
+from datetime import datetime
 
 TOKEN = "8641761191:AAG20Xs8C7yLGb0Kb8La2TCVASFi0PoPK9U"
+bot = telebot.TeleBot(TOKEN)
 
-ADMIN_IDS = [123456789]  # kendi telegram id
+DOSYA = "stok.json"
 
-# DATABASE
-conn = sqlite3.connect("stok.db", check_same_thread=False)
-cursor = conn.cursor()
+# İlk stoklar (istediğin gibi değiştir)
+default_stok = {
+    "Jack Daniels 1L": {"adet": 12, "kritik": 3},
+    "Chivas Regal 12": {"adet": 8, "kritik": 2},
+    "Grey Goose": {"adet": 5, "kritik": 2},
+    "Johnnie Walker Black": {"adet": 10, "kritik": 3},
+    "Absolut Vodka": {"adet": 15, "kritik": 4},
+}
 
-cursor.execute("""
-CREATE TABLE IF NOT EXISTS products (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT UNIQUE,
-    stock INTEGER
-)
-""")
-
-conn.commit()
-
-
-# START
-async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = """
-🍺 Bar Stok Takip Botu
-
-Komutlar:
-
-/urunekle isim miktar
-/stok isim
-/satis isim miktar
-/guncelle isim miktar
-/liste
-"""
-    await update.message.reply_text(text)
-
-
-# ADMIN CHECK
-def is_admin(user_id):
-    return user_id in ADMIN_IDS
-
-
-# ÜRÜN EKLE
-async def urunekle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return await update.message.reply_text("Yetkisiz erişim!")
-
+def yukle_stok():
     try:
-        name = context.args[0]
-        stock = int(context.args[1])
-
-        cursor.execute(
-            "INSERT INTO products (name, stock) VALUES (?, ?)",
-            (name, stock)
-        )
-        conn.commit()
-
-        await update.message.reply_text(
-            f"✅ {name} eklendi.\nStok: {stock}"
-        )
-
-    except sqlite3.IntegrityError:
-        await update.message.reply_text("Bu ürün zaten mevcut.")
-
+        with open(DOSYA, "r", encoding="utf-8") as f:
+            return json.load(f)
     except:
-        await update.message.reply_text(
-            "Kullanım:\n/urunekle kola 50"
-        )
+        with open(DOSYA, "w", encoding="utf-8") as f:
+            json.dump(default_stok, f, ensure_ascii=False, indent=2)
+        return default_stok
 
+def kaydet_stok(stok):
+    with open(DOSYA, "w", encoding="utf-8") as f:
+        json.dump(stok, f, ensure_ascii=False, indent=2)
 
-# STOK GÖR
-async def stok(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    try:
-        name = context.args[0]
+@bot.message_handler(commands=['start', 'help'])
+def basla(message):
+    bot.reply_to(message, 
+        "🍻 Bar Stok Botu'na hoş geldin!\n\n"
+        "Kullanım:\n"
+        "• Ürün Adı -3   → Eksilt\n"
+        "• Ürün Adı +5   → Ekle\n"
+        "• /stok         → Güncel stok\n"
+        "• /rapor        → Detaylı rapor")
 
-        cursor.execute(
-            "SELECT stock FROM products WHERE name=?",
-            (name,)
-        )
-
-        result = cursor.fetchone()
-
-        if result:
-            await update.message.reply_text(
-                f"📦 {name} stok: {result[0]}"
-            )
+@bot.message_handler(commands=['stok'])
+def goster_stok(message):
+    stok = yukle_stok()
+    metin = "📊 *GÜNCEL STOK*\n\n"
+    for urun, veri in stok.items():
+        adet = veri["adet"]
+        kritik = veri["kritik"]
+        if adet <= kritik:
+            metin += f"⚠️ {urun}: *{adet}* (Kritik!)\n"
         else:
-            await update.message.reply_text("Ürün bulunamadı.")
+            metin += f"✅ {urun}: {adet}\n"
+    bot.reply_to(message, metin, parse_mode="Markdown")
 
-    except:
-        await update.message.reply_text(
-            "Kullanım:\n/stok kola"
-        )
+@bot.message_handler(commands=['rapor'])
+def detay_rapor(message):
+    stok = yukle_stok()
+    metin = f"📋 *DETAYLI RAPOR* - {datetime.now().strftime('%d.%m.%Y %H:%M')}\n\n"
+    for urun, veri in stok.items():
+        metin += f"{urun}: {veri['adet']} adet (Kritik: {veri['kritik']})\n"
+    bot.reply_to(message, metin)
 
-
-# SATIŞ
-async def satis(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return await update.message.reply_text("Yetkisiz erişim!")
-
+@bot.message_handler(func=lambda m: True)
+def mesaj_isle(message):
     try:
-        name = context.args[0]
-        amount = int(context.args[1])
-
-        cursor.execute(
-            "SELECT stock FROM products WHERE name=?",
-            (name,)
-        )
-
-        result = cursor.fetchone()
-
-        if not result:
-            return await update.message.reply_text(
-                "Ürün bulunamadı."
-            )
-
-        current_stock = result[0]
-
-        if current_stock < amount:
-            return await update.message.reply_text(
-                "Yetersiz stok!"
-            )
-
-        new_stock = current_stock - amount
-
-        cursor.execute(
-            "UPDATE products SET stock=? WHERE name=?",
-            (new_stock, name)
-        )
-
-        conn.commit()
-
-        msg = f"🍻 {amount} adet {name} satıldı.\nYeni stok: {new_stock}"
-
-        if new_stock <= 10:
-            msg += "\n⚠️ KRİTİK STOK!"
-
-        await update.message.reply_text(msg)
-
+        text = message.text.strip()
+        stok = yukle_stok()
+        
+        # + veya - var mı kontrol et
+        if " +" in text or " -" in text or text.count("+") == 1 or text.count("-") == 1:
+            # Basit parsing
+            if "+" in text:
+                urun, adet_str = text.split("+", 1)
+                adet = int(adet_str.strip())
+                islem = "eklendi"
+            else:
+                urun, adet_str = text.split("-", 1)
+                adet = int(adet_str.strip())
+                islem = "eksiltildi"
+            
+            urun = urun.strip()
+            
+            if urun in stok:
+                if islem == "eklendi":
+                    stok[urun]["adet"] += adet
+                else:
+                    stok[urun]["adet"] -= adet
+                    if stok[urun]["adet"] < 0:
+                        stok[urun]["adet"] = 0
+                
+                kaydet_stok(stok)
+                bot.reply_to(message, f"✅ *{adet} adet* {urun} {islem}.")
+                
+                # Kritik kontrol
+                if stok[urun]["adet"] <= stok[urun]["kritik"]:
+                    bot.reply_to(message, f"⚠️ DİKKAT! {urun} kritik seviyede ({stok[urun]['adet']} kaldı)")
+            else:
+                bot.reply_to(message, "❌ Bu ürün stokta yok. Önce eklemen lazım.")
+        else:
+            bot.reply_to(message, "❓ Anlamadım. Örnek: Jack Daniels -2 veya /stok yaz.")
+            
     except:
-        await update.message.reply_text(
-            "Kullanım:\n/satis kola 5"
-        )
-
-
-# STOK GÜNCELLE
-async def guncelle(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    if not is_admin(update.effective_user.id):
-        return await update.message.reply_text("Yetkisiz erişim!")
-
-    try:
-        name = context.args[0]
-        stock = int(context.args[1])
-
-        cursor.execute(
-            "UPDATE products SET stock=? WHERE name=?",
-            (stock, name)
-        )
-
-        conn.commit()
-
-        await update.message.reply_text(
-            f"🔄 {name} yeni stok: {stock}"
-        )
-
-    except:
-        await update.message.reply_text(
-            "Kullanım:\n/guncelle kola 100"
-        )
-
-
-# LİSTE
-async def liste(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    cursor.execute("SELECT name, stock FROM products")
-
-    products = cursor.fetchall()
-
-    if not products:
-        return await update.message.reply_text(
-            "Ürün bulunamadı."
-        )
-
-    text = "📋 STOK LİSTESİ\n\n"
-
-    for name, stock in products:
-        icon = "🟢"
-
-        if stock <= 10:
-            icon = "🔴"
-
-        text += f"{icon} {name} → {stock}\n"
-
-    await update.message.reply_text(text)
-
-
-# MAIN
-app = ApplicationBuilder().token(TOKEN).build()
-
-app.add_handler(CommandHandler("start", start))
-app.add_handler(CommandHandler("urunekle", urunekle))
-app.add_handler(CommandHandler("stok", stok))
-app.add_handler(CommandHandler("satis", satis))
-app.add_handler(CommandHandler("guncelle", guncelle))
-app.add_handler(CommandHandler("liste", liste))
+        bot.reply_to(message, "❌ Hatalı format. Örnek kullanım:\nJack Daniels -3")
 
 print("Bot çalışıyor...")
-app.run_polling()
+bot.infinity_polling()
